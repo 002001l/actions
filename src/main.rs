@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use base32::Alphabet;
-use clap::{Parser, Subcommand, Arg, ArgAction, command};
-use hmac::{Hmac, Mac};
+use clap::{Parser, command};
+use hmac::{Hmac, Mac, NewMac};
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Sha256, Digest};
@@ -20,7 +20,6 @@ use aes_gcm::{
 use url::Url;
 
 type HmacSha1 = Hmac<Sha1>;
-type HmacSha256 = Hmac<sha2::Sha256>;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -178,7 +177,7 @@ fn generate_totp(secret: &str) -> Result<String> {
         / 30;
 
     let timestamp_bytes = timestamp.to_be_bytes();
-    let mut mac = HmacSha1::new_from_slice(&decoded)?;
+    let mut mac = <HmacSha1 as NewMac>::new_from_slice(&decoded)?;
     mac.update(&timestamp_bytes);
     let result = mac.finalize().into_bytes();
 
@@ -196,7 +195,7 @@ fn generate_hotp(secret: &str, counter: u64) -> Result<String> {
         .ok_or_else(|| anyhow!("无效的 base32 编码"))?;
 
     let counter_bytes = counter.to_be_bytes();
-    let mut mac = HmacSha1::new_from_slice(&decoded)?;
+    let mut mac = <HmacSha1 as NewMac>::new_from_slice(&decoded)?;
     mac.update(&counter_bytes);
     let result = mac.finalize().into_bytes();
 
@@ -277,11 +276,12 @@ fn main() -> Result<()> {
             println!("成功添加密钥：{}", secret_info.name);
         } else if let Some(name) = &cli.name {
             // 添加普通密钥
+            let auth_type = cli.auth_type.clone();
             let secret = Secret {
                 name: name.clone(),
                 secret: secret_str,
-                auth_type: cli.auth_type,
-                counter: if cli.auth_type == "hotp" { Some(0) } else { None },
+                auth_type: auth_type.clone(),
+                counter: if auth_type == "hotp" { Some(0) } else { None },
             };
             secrets.insert(name.clone(), secret);
             println!("成功添加密钥：{}", name);
@@ -314,22 +314,30 @@ fn main() -> Result<()> {
         if secrets.is_empty() {
             println!("没有保存的密钥");
         } else {
+            // 收集所有需要更新的 HOTP 密钥
+            let mut updates = Vec::new();
+            
             for (name, secret) in &secrets {
                 let code = generate_code(secret)?;
                 println!("{}: {}", name, code);
                 
-                // 如果是 HOTP，增加计数器
+                // 如果是 HOTP，记录需要更新的密钥
                 if secret.auth_type == "hotp" {
                     if let Some(counter) = secret.counter {
                         let mut updated_secret = secret.clone();
                         updated_secret.counter = Some(counter + 1);
-                        secrets.insert(name.clone(), updated_secret);
+                        updates.push((name.clone(), updated_secret));
                     }
                 }
             }
             
+            // 更新 HOTP 计数器
+            for (name, updated_secret) in updates {
+                secrets.insert(name, updated_secret);
+            }
+            
             // 保存更新后的 HOTP 计数器
-            if secrets.values().any(|s| s.auth_type == "hotp") {
+            if !updates.is_empty() {
                 save_secrets(&secrets, &password)?;
             }
         }
