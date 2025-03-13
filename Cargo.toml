@@ -1,0 +1,28 @@
+[package]
+name = "totp_cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "一个支持多种验证码类型的命令行工具"
+
+[dependencies]
+anyhow = "1.0"
+base32 = "0.4"
+clap = { version = "4.0", features = ["derive"] }
+hmac = "0.12"
+sha1 = "0.10"
+sha2 = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dirs = "5.0"
+rpassword = "7.2"
+aes-gcm = "0.10"
+rand = "0.8"
+url = "2.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = 'abort'
+strip = true 
