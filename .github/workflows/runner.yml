@@ -1,0 +1,50 @@
+name: Runner Tests
+
+on:
+  workflow_dispatch:
+
+jobs:
+  alpine:
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:latest
+    steps:
+      - name: Print Alpine Version and Architecture
+        run: |
+          cat /etc/alpine-release
+          uname -a
+
+  ubuntu:
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - name: Arch64
+        run: |
+          uname -a
+
+  freebsd:
+    runs-on: ubuntu-latest
+    name: FreeBSD on aarch64
+    steps:
+    - uses: actions/checkout@v4
+    - name: Test in FreeBSD on aarch64
+      id: test
+      uses: vmactions/freebsd-vm@v1
+      with:
+        usesh: true
+        release: "15.0"
+        arch: aarch64
+        # sync: nfs  # 或者：no
+        # copyback: false
+        # prepare: |
+        #   pkg install -y curl git 
+        # run: |
+        #   pwd
+        #   ls -lah
+        #   freebsd-version
+
+    - name: View Details
+      shell: freebsd {0}
+      run: |
+        pkg install -y tree
+        uname -a
+        freebsd-version
