@@ -15,7 +15,7 @@ use std::{
 };
 use rpassword::read_password;
 use aes_gcm::{
-    aead::{Aead, KeyInit as AeadKeyInit},
+    aead::Aead,
     Aes256Gcm, Nonce,
 };
 use url::Url;
@@ -250,29 +250,44 @@ fn check_password_needed() -> bool {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     
-    // 检查是否需要设置密码
-    if !check_password_needed() && cli.password.is_none() {
-        println!("未找到加密数据，请使用 -p 参数设置密码");
-        return Ok(());
-    }
+    // 检查是否存在本地数据
+    let has_local_data = check_password_needed();
     
-    // 获取密码
-    let password = if let Some(pass) = cli.password {
-        pass
-    } else if check_password_needed() {
-        prompt_password()?
-    } else {
-        return Ok(());
-    };
-    
-    // 加载现有密钥
-    let mut secrets = load_secrets(&password)?;
-    
-    // 处理添加新密钥
-    if let Some(secret_str) = cli.secret {
+    // 处理添加新密钥的情况
+    if let Some(secret_str) = &cli.secret {
+        // 如果没有本地数据，必须先设置密码
+        if !has_local_data {
+            if cli.password.is_none() {
+                println!("未找到加密数据，请使用 -p 参数设置密码");
+                return Ok(());
+            }
+            
+            // 创建一个空的数据库并保存
+            let password = cli.password.as_ref().unwrap();
+            let secrets = HashMap::new();
+            save_secrets(&secrets, password)?;
+            println!("已创建加密数据库");
+        }
+        
+        // 获取密码 - 添加密钥时使用提供的密码或从已有数据库中读取
+        let password = if let Some(pass) = &cli.password {
+            pass.clone()
+        } else {
+            prompt_password()?
+        };
+        
+        // 加载现有密钥
+        let mut secrets = match load_secrets(&password) {
+            Ok(s) => s,
+            Err(_) => {
+                println!("密码错误或数据损坏");
+                return Ok(());
+            }
+        };
+        
         if secret_str.starts_with("otpauth://") {
             // 解析 otpauth URL
-            let secret_info = parse_otpauth_url(&secret_str)?;
+            let secret_info = parse_otpauth_url(secret_str)?;
             secrets.insert(secret_info.name.clone(), secret_info.clone());
             println!("成功添加密钥：{}", secret_info.name);
         } else if let Some(name) = &cli.name {
@@ -280,7 +295,7 @@ fn main() -> Result<()> {
             let auth_type = cli.auth_type.clone();
             let secret = Secret {
                 name: name.clone(),
-                secret: secret_str,
+                secret: secret_str.clone(),
                 auth_type: auth_type.clone(),
                 counter: if auth_type == "hotp" { Some(0) } else { None },
             };
@@ -292,8 +307,63 @@ fn main() -> Result<()> {
         
         // 保存更新后的密钥
         save_secrets(&secrets, &password)?;
-    } else if let Some(name) = cli.name {
-        // 获取指定服务的验证码
+        return Ok(());
+    }
+    
+    // 如果只是设置/修改密码但没有其他操作
+    if cli.password.is_some() && cli.name.is_none() && cli.secret.is_none() {
+        let new_password = cli.password.as_ref().unwrap();
+        
+        if has_local_data {
+            // 修改现有数据库的密码
+            print!("请输入原密码: ");
+            io::stdout().flush()?;
+            let old_password = read_password()?;
+            
+            // 尝试加载现有数据
+            match load_secrets(&old_password) {
+                Ok(secrets) => {
+                    // 使用新密码保存数据
+                    save_secrets(&secrets, new_password)?;
+                    println!("密码已成功修改");
+                },
+                Err(_) => {
+                    println!("原密码错误，无法修改密码");
+                }
+            }
+        } else {
+            // 创建一个空的数据库并保存
+            let secrets = HashMap::new();
+            save_secrets(&secrets, new_password)?;
+            println!("已创建加密数据库");
+        }
+        return Ok(());
+    }
+    
+    // 查看验证码时需要密码
+    if !has_local_data {
+        println!("未找到加密数据，请使用 -p 参数设置密码");
+        return Ok(());
+    }
+    
+    // 获取密码用于查看验证码
+    let password = if let Some(pass) = cli.password {
+        pass
+    } else {
+        prompt_password()?
+    };
+    
+    // 加载现有密钥
+    let mut secrets = match load_secrets(&password) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("无法加载数据: {}", e);
+            return Ok(());
+        }
+    };
+    
+    // 获取指定服务的验证码
+    if let Some(name) = cli.name {
         if let Some(secret) = secrets.get(&name) {
             let code = generate_code(secret)?;
             println!("{}: {}", name, code);
