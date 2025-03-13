@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use base32::Alphabet;
 use clap::{Parser, command};
 use hmac::{Hmac, Mac};
+use hmac::digest::KeyInit;
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Sha256, Digest};
@@ -14,7 +15,7 @@ use std::{
 };
 use rpassword::read_password;
 use aes_gcm::{
-    aead::{Aead, KeyInit},
+    aead::{Aead, KeyInit as AeadKeyInit},
     Aes256Gcm, Nonce,
 };
 use url::Url;
@@ -177,7 +178,7 @@ fn generate_totp(secret: &str) -> Result<String> {
         / 30;
 
     let timestamp_bytes = timestamp.to_be_bytes();
-    let mut mac = HmacSha1::new_from_slice(&decoded)?;
+    let mut mac = <HmacSha1 as KeyInit>::new_from_slice(&decoded)?;
     mac.update(&timestamp_bytes);
     let result = mac.finalize().into_bytes();
 
@@ -195,7 +196,7 @@ fn generate_hotp(secret: &str, counter: u64) -> Result<String> {
         .ok_or_else(|| anyhow!("无效的 base32 编码"))?;
 
     let counter_bytes = counter.to_be_bytes();
-    let mut mac = HmacSha1::new_from_slice(&decoded)?;
+    let mut mac = <HmacSha1 as KeyInit>::new_from_slice(&decoded)?;
     mac.update(&counter_bytes);
     let result = mac.finalize().into_bytes();
 
