@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use base32::Alphabet;
 use clap::{Parser, command};
-use hmac::{Hmac, Mac, NewMac};
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Sha256, Digest};
@@ -177,7 +177,7 @@ fn generate_totp(secret: &str) -> Result<String> {
         / 30;
 
     let timestamp_bytes = timestamp.to_be_bytes();
-    let mut mac = <HmacSha1 as NewMac>::new_from_slice(&decoded)?;
+    let mut mac = HmacSha1::new_from_slice(&decoded)?;
     mac.update(&timestamp_bytes);
     let result = mac.finalize().into_bytes();
 
@@ -195,7 +195,7 @@ fn generate_hotp(secret: &str, counter: u64) -> Result<String> {
         .ok_or_else(|| anyhow!("无效的 base32 编码"))?;
 
     let counter_bytes = counter.to_be_bytes();
-    let mut mac = <HmacSha1 as NewMac>::new_from_slice(&decoded)?;
+    let mut mac = HmacSha1::new_from_slice(&decoded)?;
     mac.update(&counter_bytes);
     let result = mac.finalize().into_bytes();
 
@@ -332,8 +332,8 @@ fn main() -> Result<()> {
             }
             
             // 更新 HOTP 计数器
-            for (name, updated_secret) in updates {
-                secrets.insert(name, updated_secret);
+            for (name, updated_secret) in &updates {
+                secrets.insert(name.clone(), updated_secret.clone());
             }
             
             // 保存更新后的 HOTP 计数器
