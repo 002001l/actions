@@ -3,7 +3,7 @@ use base32::Alphabet;
 use hmac::{Hmac, Mac};
 use hmac::digest::KeyInit;
 use sha1::Sha1;
-use sha2::Sha256;
+use sha2::{Sha256, Digest};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::models::Secret;

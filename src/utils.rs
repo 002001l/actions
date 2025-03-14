@@ -119,7 +119,9 @@ fn open_file_with_lock(path: &Path, write: bool) -> Result<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        file.set_cloexec(true)?;
+        unsafe {
+            libc::fcntl(file.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC);
+        }
     }
     
     Ok(file)
