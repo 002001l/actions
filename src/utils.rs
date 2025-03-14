@@ -2,13 +2,11 @@ use anyhow::{anyhow, Result};
 use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
     path::Path,
     sync::Mutex,
 };
 use url::Url;
 use std::sync::Arc;
-use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use libc;
 

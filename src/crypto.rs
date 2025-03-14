@@ -7,7 +7,6 @@ use pbkdf2::pbkdf2_hmac_array;
 use sha2::Sha256;
 use std::{
     collections::HashMap,
-    fs::File,
     io::{Read, Write},
 };
 
