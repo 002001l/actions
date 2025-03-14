@@ -21,6 +21,8 @@ rand = "0.8"
 url = "2.3"
 image = "0.24"
 quircs = "0.10"
+pbkdf2 = "0.12"
+lazy_static = "1.4"
 
 [profile.release]
 opt-level = 3

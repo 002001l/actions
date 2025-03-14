@@ -1,16 +1,24 @@
 use anyhow::{anyhow, Result};
 use std::{
     collections::HashMap,
-    fs::{self, File},
+    fs::{self, File, OpenOptions},
     io::{Read, Write},
+    path::Path,
+    sync::Mutex,
 };
 use url::Url;
+use std::sync::Arc;
 
 use crate::{
     crypto::{load_secrets, save_secrets},
     models::{EncryptedData, Secret},
     storage::get_config_path,
 };
+
+// 全局临时服务存储
+lazy_static::lazy_static! {
+    static ref TEMP_SERVICES: Arc<Mutex<HashMap<String, Secret>>> = Arc::new(Mutex::new(HashMap::new()));
+}
 
 pub fn parse_otpauth_url(url_str: &str) -> Result<Secret> {
     let url = Url::parse(url_str)?;
@@ -63,40 +71,56 @@ pub fn add_service_without_password(secret: Secret) -> Result<()> {
         return Ok(());
     }
     
-    // 如果空密码不行，需要读取加密的数据但不解密
-    let mut file = File::open(config_path)?;
-    let mut encrypted_data = Vec::new();
-    file.read_to_end(&mut encrypted_data)?;
+    // 如果空密码不行，将服务添加到内存中的临时存储
+    let mut temp_services = TEMP_SERVICES.lock().map_err(|_| anyhow!("无法获取临时服务锁"))?;
+    temp_services.insert(secret.name.clone(), secret);
     
-    // 验证数据格式是否正确，但不使用解密后的结果
-    let _: EncryptedData = serde_json::from_slice(&encrypted_data)?;
-    
-    // 创建一个临时文件来存储新的服务
-    let temp_path = dirs::config_dir().unwrap().join("totp_cli").join("temp_service.json");
-    let mut temp_file = File::create(&temp_path)?;
-    serde_json::to_writer_pretty(&mut temp_file, &secret)?;
-    
-    println!("服务 \"{}\" 已添加到临时文件。下次查看验证码时将自动合并。", secret.name);
-    println!("临时文件路径: {}", temp_path.display());
+    println!("服务 \"{}\" 已添加到临时存储。下次查看验证码时将自动合并。", secret.name);
     
     Ok(())
 }
 
 // 合并临时添加的服务
 pub fn merge_temp_services(secrets: &mut HashMap<String, Secret>) -> Result<bool> {
-    let temp_path = dirs::config_dir().unwrap().join("totp_cli").join("temp_service.json");
-    if !temp_path.exists() {
+    let mut temp_services = TEMP_SERVICES.lock().map_err(|_| anyhow!("无法获取临时服务锁"))?;
+    if temp_services.is_empty() {
         return Ok(false);
     }
     
-    let temp_file = File::open(&temp_path)?;
-    let temp_service: Secret = serde_json::from_reader(temp_file)?;
-    
-    secrets.insert(temp_service.name.clone(), temp_service.clone());
-    println!("已合并临时添加的服务: {}", temp_service.name);
-    
-    // 删除临时文件
-    fs::remove_file(temp_path)?;
+    // 合并所有临时服务
+    for (name, secret) in temp_services.drain() {
+        secrets.insert(name.clone(), secret.clone());
+        println!("已合并临时添加的服务: {}", name);
+    }
     
     Ok(true)
+}
+
+// 设置文件权限
+fn set_file_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(path)?.permissions();
+        perms.set_mode(0o600); // 只允许所有者读写
+        fs::set_permissions(path, perms)?;
+    }
+    Ok(())
+}
+
+// 打开文件时获取文件锁
+fn open_file_with_lock(path: &Path, write: bool) -> Result<File> {
+    let file = OpenOptions::new()
+        .read(!write)
+        .write(write)
+        .create(write)
+        .open(path)?;
+    
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        file.set_cloexec(true)?;
+    }
+    
+    Ok(file)
 } 

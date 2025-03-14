@@ -3,11 +3,16 @@ use aes_gcm::{
     aead::Aead,
     Aes256Gcm, KeyInit, Nonce,
 };
+use pbkdf2::{
+    pbkdf2_hmac_array,
+    Pbkdf2,
+};
 use sha2::{Sha256, Digest};
 use std::{
     collections::HashMap,
     fs::File,
     io::{Read, Write},
+    ptr,
 };
 
 use crate::{
@@ -15,19 +20,25 @@ use crate::{
     storage::get_config_path,
 };
 
+// 安全的内存擦除
+fn secure_erase(data: &mut [u8]) {
+    for byte in data.iter_mut() {
+        *byte = 0;
+    }
+}
+
 pub fn derive_key(password: &str, salt: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(password.as_bytes());
-    hasher.update(salt);
-    let result = hasher.finalize();
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&result);
-    key
+    // 使用 PBKDF2 进行密钥派生
+    pbkdf2_hmac_array::<Sha256>(
+        password.as_bytes(),
+        salt,
+        100_000, // 迭代次数
+    )
 }
 
 pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData> {
     let salt = rand::random::<[u8; 16]>().to_vec();
-    let key = derive_key(password, &salt);
+    let mut key = derive_key(password, &salt);
     
     let cipher = Aes256Gcm::new_from_slice(&key)?;
     let nonce_bytes = rand::random::<[u8; 12]>();
@@ -35,6 +46,9 @@ pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData> {
     
     let ciphertext = cipher.encrypt(nonce, data)
         .map_err(|_| anyhow!("加密失败"))?;
+    
+    // 安全擦除密钥
+    secure_erase(&mut key);
     
     Ok(EncryptedData {
         nonce: nonce_bytes.to_vec(),
@@ -44,13 +58,16 @@ pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData> {
 }
 
 pub fn decrypt_data(encrypted: &EncryptedData, password: &str) -> Result<Vec<u8>> {
-    let key = derive_key(password, &encrypted.salt);
+    let mut key = derive_key(password, &encrypted.salt);
     
     let cipher = Aes256Gcm::new_from_slice(&key)?;
     let nonce = Nonce::from_slice(&encrypted.nonce);
     
     let plaintext = cipher.decrypt(nonce, encrypted.ciphertext.as_ref())
         .map_err(|_| anyhow!("解密失败，密码可能不正确"))?;
+    
+    // 安全擦除密钥
+    secure_erase(&mut key);
     
     Ok(plaintext)
 }

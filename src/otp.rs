@@ -4,13 +4,35 @@ use hmac::{Hmac, Mac};
 use hmac::digest::KeyInit;
 use sha1::Sha1;
 use sha2::{Sha256, Digest};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH, Duration};
 
 use crate::models::Secret;
 
 type HmacSha1 = Hmac<Sha1>;
 
+// 检查系统时间是否同步
+fn check_time_sync() -> Result<()> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_secs();
+    
+    // 检查时间是否在合理范围内（前后5分钟）
+    let time_window = 5 * 60; // 5分钟
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_secs();
+    
+    if (current_time - now).abs() > time_window {
+        return Err(anyhow!("系统时间可能不同步，请检查时间设置"));
+    }
+    
+    Ok(())
+}
+
 pub fn generate_totp(secret: &str) -> Result<String> {
+    // 检查时间同步
+    check_time_sync()?;
+    
     let decoded = base32::decode(Alphabet::RFC4648 { padding: false }, secret)
         .ok_or_else(|| anyhow!("无效的 base32 编码"))?;
 

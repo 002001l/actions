@@ -53,15 +53,40 @@ pub struct Cli {
     delete: Option<String>,
 }
 
+// 密码强度验证
+fn validate_password(password: &str) -> Result<(), String> {
+    if password.is_empty() {
+        return Err("密码不能为空".to_string());
+    }
+    
+    if password.len() < 8 {
+        return Err("密码长度必须至少为8个字符".to_string());
+    }
+    
+    let has_uppercase = password.chars().any(|c| c.is_uppercase());
+    let has_lowercase = password.chars().any(|c| c.is_lowercase());
+    let has_digit = password.chars().any(|c| c.is_digit(10));
+    
+    if !has_uppercase || !has_lowercase || !has_digit {
+        return Err("密码必须包含大小写字母和数字".to_string());
+    }
+    
+    Ok(())
+}
+
 // 获取有效密码（考虑空密码情况）
 fn get_effective_password(cli_password: Option<&String>) -> Result<String> {
     // 检查是否是空密码
     if is_empty_password()? {
+        println!("警告：当前使用空密码，这可能导致数据不安全。建议设置强密码。");
         return Ok("".to_string());
     }
     
     // 不是空密码，需要用户提供
     if let Some(pass) = cli_password {
+        if let Err(e) = validate_password(pass) {
+            return Err(anyhow!("密码不符合要求: {}", e));
+        }
         Ok(pass.clone())
     } else {
         prompt_password()
@@ -71,7 +96,13 @@ fn get_effective_password(cli_password: Option<&String>) -> Result<String> {
 fn prompt_password() -> Result<String> {
     print!("请输入密码: ");
     io::stdout().flush()?;
-    Ok(read_password()?)
+    let password = read_password()?;
+    
+    if let Err(e) = validate_password(&password) {
+        return Err(anyhow!("密码不符合要求: {}", e));
+    }
+    
+    Ok(password)
 }
 
 fn check_password_needed() -> bool {
