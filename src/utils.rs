@@ -73,7 +73,7 @@ pub fn add_service_without_password(secret: Secret) -> Result<()> {
     
     // 如果空密码不行，将服务添加到内存中的临时存储
     let mut temp_services = TEMP_SERVICES.lock().map_err(|_| anyhow!("无法获取临时服务锁"))?;
-    temp_services.insert(secret.name.clone(), secret);
+    temp_services.insert(secret.name.clone(), secret.clone());
     
     println!("服务 \"{}\" 已添加到临时存储。下次查看验证码时将自动合并。", secret.name);
     
