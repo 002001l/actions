@@ -3,11 +3,8 @@ use aes_gcm::{
     aead::Aead,
     Aes256Gcm, KeyInit, Nonce,
 };
-use pbkdf2::{
-    pbkdf2_hmac_array,
-    Pbkdf2,
-};
-use sha2::{Sha256, Digest};
+use pbkdf2::pbkdf2_hmac_array;
+use sha2::Sha256;
 use std::{
     collections::HashMap,
     fs::File,
@@ -29,7 +26,7 @@ fn secure_erase(data: &mut [u8]) {
 
 pub fn derive_key(password: &str, salt: &[u8]) -> [u8; 32] {
     // 使用 PBKDF2 进行密钥派生
-    pbkdf2_hmac_array::<Sha256>(
+    pbkdf2_hmac_array::<Sha256, 32>(
         password.as_bytes(),
         salt,
         100_000, // 迭代次数

@@ -66,7 +66,7 @@ pub fn add_service_without_password(secret: Secret) -> Result<()> {
     
     // 尝试使用空密码
     if let Ok(mut secrets) = load_secrets("") {
-        secrets.insert(secret.name.clone(), secret);
+        secrets.insert(secret.name.clone(), secret.clone());
         save_secrets(&secrets, "")?;
         return Ok(());
     }

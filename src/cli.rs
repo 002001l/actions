@@ -2,14 +2,12 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, command};
 use std::{
     collections::HashMap,
-    fs::File,
     io::{self, Write},
-    path::Path,
 };
 use rpassword::read_password;
 
 use crate::{
-    crypto::{encrypt_data, load_secrets, save_secrets},
+    crypto::{load_secrets, save_secrets},
     models::Secret,
     otp::generate_code,
     qrcode::scan_qrcode,

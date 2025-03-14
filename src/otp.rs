@@ -22,7 +22,13 @@ fn check_time_sync() -> Result<()> {
         .duration_since(UNIX_EPOCH)?
         .as_secs();
     
-    if (current_time - now).abs() > time_window {
+    let time_diff = if current_time > now {
+        current_time - now
+    } else {
+        now - current_time
+    };
+    
+    if time_diff > time_window {
         return Err(anyhow!("系统时间可能不同步，请检查时间设置"));
     }
     
