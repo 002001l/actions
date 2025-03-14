@@ -348,7 +348,8 @@ fn add_service_without_password(secret: Secret) -> Result<()> {
     let mut encrypted_data = Vec::new();
     file.read_to_end(&mut encrypted_data)?;
     
-    let encrypted: EncryptedData = serde_json::from_slice(&encrypted_data)?;
+    // 验证数据格式是否正确，但不使用解密后的结果
+    let _: EncryptedData = serde_json::from_slice(&encrypted_data)?;
     
     // 创建一个临时文件来存储新的服务
     let temp_path = dirs::config_dir().unwrap().join("totp_cli").join("temp_service.json");
