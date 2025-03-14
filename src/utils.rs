@@ -9,10 +9,12 @@ use std::{
 use url::Url;
 use std::sync::Arc;
 use std::os::fd::AsRawFd;
+#[cfg(unix)]
+use libc;
 
 use crate::{
     crypto::{load_secrets, save_secrets},
-    models::{EncryptedData, Secret},
+    models::{Secret},
     storage::get_config_path,
 };
 
@@ -98,7 +100,7 @@ pub fn merge_temp_services(secrets: &mut HashMap<String, Secret>) -> Result<bool
 }
 
 // 设置文件权限
-fn set_file_permissions(path: &Path) -> Result<()> {
+pub fn set_file_permissions(path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -110,7 +112,7 @@ fn set_file_permissions(path: &Path) -> Result<()> {
 }
 
 // 打开文件时获取文件锁
-fn open_file_with_lock(path: &Path, write: bool) -> Result<File> {
+pub fn open_file_with_lock(path: &Path, write: bool) -> Result<File> {
     let file = OpenOptions::new()
         .read(!write)
         .write(write)
@@ -119,8 +121,23 @@ fn open_file_with_lock(path: &Path, write: bool) -> Result<File> {
     
     #[cfg(unix)]
     {
+        use std::os::unix::io::AsRawFd;
+        
+        // 设置文件描述符标志
         unsafe {
             libc::fcntl(file.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC);
+        }
+        
+        // 添加文件锁，避免多实例并发修改
+        let lock_type = if write {
+            libc::LOCK_EX // 独占锁
+        } else {
+            libc::LOCK_SH // 共享锁
+        };
+        
+        // 尝试获取锁，不阻塞
+        if unsafe { libc::flock(file.as_raw_fd(), lock_type | libc::LOCK_NB) } != 0 {
+            return Err(anyhow!("无法获取文件锁，可能有其他实例正在访问该文件"));
         }
     }
     

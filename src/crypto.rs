@@ -14,6 +14,7 @@ use std::{
 use crate::{
     models::{EncryptedData, Secret},
     storage::get_config_path,
+    utils,
 };
 
 // 安全的内存擦除
@@ -74,7 +75,8 @@ pub fn load_secrets(password: &str) -> Result<HashMap<String, Secret>> {
         return Ok(HashMap::new());
     }
     
-    let mut file = File::open(path)?;
+    // 使用文件锁打开文件（读取模式）
+    let mut file = utils::open_file_with_lock(&path, false)?;
     let mut encrypted_data = Vec::new();
     file.read_to_end(&mut encrypted_data)?;
     
@@ -89,8 +91,12 @@ pub fn save_secrets(secrets: &HashMap<String, Secret>, password: &str) -> Result
     let encrypted = encrypt_data(&data, password)?;
     
     let path = get_config_path()?;
-    let mut file = File::create(path)?;
+    // 使用文件锁打开文件（写入模式）
+    let mut file = utils::open_file_with_lock(&path, true)?;
     file.write_all(&serde_json::to_vec(&encrypted)?)?;
+    
+    // 设置严格的文件权限
+    utils::set_file_permissions(&path)?;
     
     Ok(())
 } 
