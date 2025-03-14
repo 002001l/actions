@@ -19,6 +19,8 @@ rpassword = "7.2"
 aes-gcm = "0.10"
 rand = "0.8"
 url = "2.3"
+image = "0.24"
+quircs = "0.10"
 
 [profile.release]
 opt-level = 3
