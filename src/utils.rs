@@ -8,6 +8,7 @@ use std::{
 };
 use url::Url;
 use std::sync::Arc;
+use std::os::fd::AsRawFd;
 
 use crate::{
     crypto::{load_secrets, save_secrets},
@@ -118,7 +119,6 @@ fn open_file_with_lock(path: &Path, write: bool) -> Result<File> {
     
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt;
         unsafe {
             libc::fcntl(file.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC);
         }
