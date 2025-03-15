@@ -1,9 +1,9 @@
 [package]
-name = "totp_cli"
+name = "otpguard"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
-description = "一个支持多种验证码类型的命令行工具"
+authors = ["002001l linzqie@qq.com"]
+description = "一个功能丰富的多种验证码类型管理工具"
 
 [dependencies]
 anyhow = "1.0"

@@ -32,18 +32,18 @@ jobs:
       - name: Package
         run: |
           cd target/${{ matrix.target }}/release
-          tar czvf ../../../totp-cli-${{ matrix.target }}.tar.gz totp_cli
+          tar czvf ../../../otpguard-${{ matrix.target }}.tar.gz otpguard
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: totp-cli-${{ matrix.target }}
-          path: totp-cli-${{ matrix.target }}.tar.gz
+          name: otpguard-${{ matrix.target }}
+          path: otpguard-${{ matrix.target }}.tar.gz
 
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: totp-cli-*.tar.gz
+          files: otpguard-*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
