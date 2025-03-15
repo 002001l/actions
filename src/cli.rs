@@ -330,7 +330,7 @@ pub fn run() -> Result<()> {
                 match parse_otpauth_url(&url) {
                     Ok(secret_info) => {
                         // 添加密钥到数据库
-                        let mut updated_secret = secret_info.clone();
+                        let updated_secret = secret_info.clone();
                         secrets.insert(updated_secret.name.clone(), updated_secret);
                         save_secrets(&secrets, &password)?;
                         println!("成功从二维码添加密钥：{}", secret_info.name);

@@ -48,7 +48,7 @@ pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData> {
     versioned_data.push(CURRENT_DATA_FORMAT_VERSION);
     versioned_data.extend_from_slice(data);
     
-    let ciphertext = cipher.encrypt(nonce, &versioned_data)
+    let ciphertext = cipher.encrypt(nonce, &*versioned_data)
         .map_err(|_| anyhow!("加密失败"))?;
     
     // 安全擦除密钥

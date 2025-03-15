@@ -11,7 +11,6 @@ use libc;
 
 use crate::{
     models::{Secret, AuthType},
-    storage::get_config_path,
 };
 
 // 检查目录是否可写
