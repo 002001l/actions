@@ -1,10 +1,37 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum AuthType {
+    Totp,
+    Hotp,
+    Motp,
+}
+
+impl AuthType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AuthType::Totp => "totp",
+            AuthType::Hotp => "hotp",
+            AuthType::Motp => "motp",
+        }
+    }
+    
+    pub fn from_str(s: &str) -> Result<Self, String> {
+        match s.to_lowercase().as_str() {
+            "totp" => Ok(AuthType::Totp),
+            "hotp" => Ok(AuthType::Hotp),
+            "motp" => Ok(AuthType::Motp),
+            _ => Err(format!("不支持的验证码类型: {}", s)),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Secret {
     pub name: String,
     pub secret: String,
-    pub auth_type: String,
+    pub auth_type: AuthType,
     pub counter: Option<u64>, // 用于 HOTP
 }
 

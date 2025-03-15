@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use clap::{Parser, command};
+use clap::{Parser, command, ValueEnum};
 use std::{
     collections::HashMap,
     io::{self, Write},
@@ -9,7 +9,7 @@ use chrono::{Utc, Datelike};
 
 use crate::{
     crypto::{load_secrets, save_secrets},
-    models::Secret,
+    models::{Secret, AuthType},
     otp::generate_code,
     qrcode::scan_qrcode,
     storage::{get_config_path, is_empty_password},
@@ -322,12 +322,18 @@ pub fn run() -> Result<()> {
             }
         } else if let Some(name) = &cli.name {
             // 添加普通密钥
-            let auth_type = cli.auth_type.clone();
+            let auth_type = match AuthType::from_str(&cli.auth_type) {
+                Ok(auth_type) => auth_type,
+                Err(e) => {
+                    println!("{}", e);
+                    return Ok(());
+                }
+            };
             let secret = Secret {
                 name: name.clone(),
                 secret: secret_str.clone(),
-                auth_type: auth_type.clone(),
-                counter: if auth_type == "hotp" { Some(0) } else { None },
+                auth_type,
+                counter: if auth_type == AuthType::Hotp { Some(0) } else { None },
             };
             
             // 添加服务不需要密码
@@ -413,7 +419,7 @@ pub fn run() -> Result<()> {
             println!("{}: {}", name, code);
             
             // 如果是 HOTP，增加计数器
-            if secret.auth_type == "hotp" {
+            if secret.auth_type == AuthType::Hotp {
                 if let Some(counter) = secret.counter {
                     let mut updated_secret = secret.clone();
                     updated_secret.counter = Some(counter + 1);
@@ -437,7 +443,7 @@ pub fn run() -> Result<()> {
                 println!("{}: {}", name, code);
                 
                 // 如果是 HOTP，记录需要更新的密钥
-                if secret.auth_type == "hotp" {
+                if secret.auth_type == AuthType::Hotp {
                     if let Some(counter) = secret.counter {
                         let mut updated_secret = secret.clone();
                         updated_secret.counter = Some(counter + 1);

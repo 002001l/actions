@@ -6,7 +6,7 @@ use sha1::Sha1;
 use sha2::{Sha256, Digest};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::models::Secret;
+use crate::models::{Secret, AuthType};
 
 type HmacSha1 = Hmac<Sha1>;
 
@@ -96,13 +96,12 @@ pub fn generate_motp(secret: &str) -> Result<String> {
 }
 
 pub fn generate_code(secret: &Secret) -> Result<String> {
-    match secret.auth_type.as_str() {
-        "totp" => generate_totp(&secret.secret),
-        "hotp" => {
+    match secret.auth_type {
+        AuthType::Totp => generate_totp(&secret.secret),
+        AuthType::Hotp => {
             let counter = secret.counter.unwrap_or(0);
             generate_hotp(&secret.secret, counter)
         },
-        "motp" => generate_motp(&secret.secret),
-        _ => Err(anyhow!("不支持的验证码类型: {}", secret.auth_type)),
+        AuthType::Motp => generate_motp(&secret.secret),
     }
 } 

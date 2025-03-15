@@ -2,7 +2,8 @@ use anyhow::{anyhow, Result};
 use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
-    path::Path,
+    io::{self, ErrorKind, Read, Seek, SeekFrom, Write},
+    path::{Path, PathBuf},
     sync::Mutex,
 };
 use url::Url;
@@ -12,7 +13,7 @@ use libc;
 
 use crate::{
     crypto::{load_secrets, save_secrets},
-    models::{Secret},
+    models::{Secret, AuthType},
     storage::get_config_path,
 };
 
@@ -28,9 +29,12 @@ pub fn parse_otpauth_url(url_str: &str) -> Result<Secret> {
         return Err(anyhow!("不是有效的 otpauth URL"));
     }
     
-    let auth_type = url.host_str()
+    let auth_type_str = url.host_str()
         .ok_or_else(|| anyhow!("URL 缺少验证类型"))?
         .to_string();
+        
+    let auth_type = AuthType::from_str(&auth_type_str)
+        .map_err(|e| anyhow!(e))?;
     
     let path = url.path().trim_start_matches('/');
     let name = path.to_string();
@@ -40,7 +44,7 @@ pub fn parse_otpauth_url(url_str: &str) -> Result<Secret> {
         .ok_or_else(|| anyhow!("URL 缺少 secret 参数"))?
         .to_string();
     
-    let counter = if auth_type == "hotp" {
+    let counter = if auth_type == AuthType::Hotp {
         Some(params.get("counter")
             .map(|c| c.parse::<u64>())
             .transpose()?
