@@ -2,8 +2,8 @@ use anyhow::{anyhow, Result};
 use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
-    io::{self, ErrorKind, Read, Seek, SeekFrom, Write},
-    path::{Path, PathBuf},
+    io::{Read, Write},
+    path::Path,
     sync::Mutex,
 };
 use url::Url;

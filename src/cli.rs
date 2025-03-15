@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use clap::{Parser, command, ValueEnum};
+use clap::{Parser, command};
 use std::{
     collections::HashMap,
     io::{self, Write},
@@ -332,7 +332,7 @@ pub fn run() -> Result<()> {
             let secret = Secret {
                 name: name.clone(),
                 secret: secret_str.clone(),
-                auth_type,
+                auth_type: auth_type.clone(),
                 counter: if auth_type == AuthType::Hotp { Some(0) } else { None },
             };
             
