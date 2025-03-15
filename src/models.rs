@@ -9,14 +9,6 @@ pub enum AuthType {
 }
 
 impl AuthType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            AuthType::Totp => "totp",
-            AuthType::Hotp => "hotp",
-            AuthType::Motp => "motp",
-        }
-    }
-    
     pub fn from_str(s: &str) -> Result<Self, String> {
         match s.to_lowercase().as_str() {
             "totp" => Ok(AuthType::Totp),
