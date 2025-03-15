@@ -1,9 +1,12 @@
 use anyhow::{anyhow, Result};
 use aes_gcm::{
-    aead::Aead,
+    aead::{Aead, Payload},
     Aes256Gcm, KeyInit, Nonce,
 };
-use pbkdf2::pbkdf2_hmac_array;
+use argon2::{
+    password_hash::SaltString,
+    Algorithm, Argon2, Params, Version,
+};
 use sha2::Sha256;
 use std::{
     collections::HashMap,
@@ -17,7 +20,7 @@ use crate::{
 };
 
 // 当前数据格式版本
-const CURRENT_DATA_FORMAT_VERSION: u8 = 1;
+const CURRENT_DATA_FORMAT_VERSION: u8 = 1; // 初始版本，使用Argon2加密
 
 // 安全的内存擦除
 fn secure_erase(data: &mut [u8]) {
@@ -26,18 +29,38 @@ fn secure_erase(data: &mut [u8]) {
     }
 }
 
-pub fn derive_key(password: &str, salt: &[u8]) -> [u8; 32] {
-    // 使用 PBKDF2 进行密钥派生
-    pbkdf2_hmac_array::<Sha256, 32>(
-        password.as_bytes(),
-        salt,
-        100_000, // 迭代次数
-    )
+pub fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32]> {
+    // 使用Argon2id进行密钥派生
+    let salt_string = SaltString::encode_b64(salt)
+        .map_err(|e| anyhow!("无法编码盐值: {}", e))?;
+    
+    // 配置Argon2参数，提供高安全性但仍保持合理的性能
+    // 内存: 64MB, 迭代次数: 4, 并行度: 4
+    let params = Params::new(
+        64 * 1024, // 内存成本，单位为 KB (64MB)
+        4,         // 迭代次数
+        4,         // 并行度
+        Some(32)   // 输出密钥长度
+    ).map_err(|e| anyhow!("无法设置Argon2参数: {}", e))?;
+    
+    // 创建Argon2id实例
+    let argon2 = Argon2::new(
+        Algorithm::Argon2id, // 使用Argon2id变体，平衡安全性和抵抗侧信道攻击
+        Version::V0x13,      // 使用最新的Argon2版本
+        params
+    );
+    
+    // 派生密钥
+    let mut key = [0u8; 32];
+    argon2.hash_password_into(password.as_bytes(), salt_string.as_salt().as_bytes(), &mut key)
+        .map_err(|e| anyhow!("密钥派生失败: {}", e))?;
+    
+    Ok(key)
 }
 
 pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData> {
     let salt = rand::random::<[u8; 16]>().to_vec();
-    let mut key = derive_key(password, &salt);
+    let mut key = derive_key(password, &salt)?;
     
     let cipher = Aes256Gcm::new_from_slice(&key)?;
     let nonce_bytes = rand::random::<[u8; 12]>();
@@ -48,7 +71,14 @@ pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData> {
     versioned_data.push(CURRENT_DATA_FORMAT_VERSION);
     versioned_data.extend_from_slice(data);
     
-    let ciphertext = cipher.encrypt(nonce, &*versioned_data)
+    // 添加关联数据，以提高安全性
+    // 这里我们使用salt作为关联数据，增加额外的完整性保护
+    let payload = Payload {
+        msg: &versioned_data,
+        aad: &salt,
+    };
+    
+    let ciphertext = cipher.encrypt(nonce, payload)
         .map_err(|_| anyhow!("加密失败"))?;
     
     // 安全擦除密钥
@@ -62,20 +92,32 @@ pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData> {
 }
 
 pub fn decrypt_data(encrypted: &EncryptedData, password: &str) -> Result<Vec<u8>> {
-    let mut key = derive_key(password, &encrypted.salt);
+    let mut key = derive_key(password, &encrypted.salt)?;
     
     let cipher = Aes256Gcm::new_from_slice(&key)?;
     let nonce = Nonce::from_slice(&encrypted.nonce);
     
-    let plaintext = cipher.decrypt(nonce, encrypted.ciphertext.as_ref())
-        .map_err(|_| anyhow!("解密失败，密码可能不正确"))?;
+    // 使用与加密相同的关联数据
+    let payload = Payload {
+        msg: &encrypted.ciphertext,
+        aad: &encrypted.salt,
+    };
+    
+    let plaintext = cipher.decrypt(nonce, payload)
+        .map_err(|_| anyhow!("解密失败，密码可能不正确或数据已被篡改"))?;
     
     // 安全擦除密钥
     secure_erase(&mut key);
     
     // 检查版本并移除版本标记
-    if plaintext.is_empty() || plaintext[0] != CURRENT_DATA_FORMAT_VERSION {
-        return Err(anyhow!("不支持的数据格式版本，请升级到最新版本"));
+    if plaintext.is_empty() {
+        return Err(anyhow!("解密后的数据为空"));
+    }
+    
+    let version = plaintext[0];
+    // 检查版本是否支持
+    if version != CURRENT_DATA_FORMAT_VERSION {
+        return Err(anyhow!("不支持的数据格式版本。请升级到最新版本。"));
     }
     
     // 移除版本标记
