@@ -4,8 +4,6 @@ use std::{
     path::PathBuf,
 };
 
-use crate::crypto::load_secrets;
-
 pub fn get_config_path() -> Result<PathBuf> {
     // 使用编译时常量获取package名称
     let package_name = env!("CARGO_PKG_NAME");

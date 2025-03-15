@@ -7,7 +7,6 @@ use argon2::{
     password_hash::SaltString,
     Algorithm, Argon2, Params, Version,
 };
-use sha2::Sha256;
 use std::{
     collections::HashMap,
     io::{Read, Write},
@@ -52,7 +51,7 @@ pub fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32]> {
     
     // 派生密钥
     let mut key = [0u8; 32];
-    argon2.hash_password_into(password.as_bytes(), salt_string.as_salt().as_bytes(), &mut key)
+    argon2.hash_password_into(password.as_bytes(), salt, &mut key)
         .map_err(|e| anyhow!("密钥派生失败: {}", e))?;
     
     Ok(key)
