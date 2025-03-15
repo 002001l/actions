@@ -4,7 +4,6 @@ use aes_gcm::{
     Aes256Gcm, KeyInit, Nonce,
 };
 use argon2::{
-    password_hash::SaltString,
     Algorithm, Argon2, Params, Version,
 };
 use std::{
@@ -29,10 +28,6 @@ fn secure_erase(data: &mut [u8]) {
 }
 
 pub fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32]> {
-    // 使用Argon2id进行密钥派生
-    let salt_string = SaltString::encode_b64(salt)
-        .map_err(|e| anyhow!("无法编码盐值: {}", e))?;
-    
     // 配置Argon2参数，提供高安全性但仍保持合理的性能
     // 内存: 64MB, 迭代次数: 4, 并行度: 4
     let params = Params::new(
