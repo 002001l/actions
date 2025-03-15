@@ -5,7 +5,7 @@ use std::{
     io::{self, Write},
 };
 use rpassword::read_password;
-use chrono::Local;
+use chrono::{Utc, Datelike};
 
 use crate::{
     crypto::{load_secrets, save_secrets},
@@ -116,7 +116,7 @@ fn check_password_needed() -> bool {
 fn show_version_info() -> Result<()> {
     let package_name = env!("CARGO_PKG_NAME");
     
-    let current_year = chrono::Utc::now().year();
+    let current_year = Utc::now().year();
     let copyright_years = if current_year > 2024 {
         format!("2024-{}", current_year)
     } else {
@@ -152,7 +152,8 @@ fn show_version_info() -> Result<()> {
         "Unknown".to_string()
     };
     
-    let build_date = chrono::Utc::now().format("%a %b %e %H:%M:%S %Y").to_string();
+    let build_date = Utc::now().format("%a %b %e %H:%M:%S %Y").to_string();
+
     
     println!("╭─────────────────────────────────────╮");
     println!("│ Name:         {:<24} │", package_name);
