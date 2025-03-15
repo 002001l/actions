@@ -35,21 +35,16 @@ fn check_time_sync() -> Result<()> {
     Ok(())
 }
 
-pub fn generate_totp(secret: &str) -> Result<String> {
-    // 检查时间同步
-    check_time_sync()?;
-    
-    let decoded = base32::decode(Alphabet::RFC4648 { padding: false }, secret)
-        .ok_or_else(|| anyhow!("无效的 base32 编码"))?;
+// 解码base32编码的密钥
+fn decode_secret(secret: &str) -> Result<Vec<u8>> {
+    base32::decode(Alphabet::RFC4648 { padding: false }, secret)
+        .ok_or_else(|| anyhow!("无效的 base32 编码"))
+}
 
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_secs()
-        / 30;
-
-    let timestamp_bytes = timestamp.to_be_bytes();
-    let mut mac = <HmacSha1 as KeyInit>::new_from_slice(&decoded)?;
-    mac.update(&timestamp_bytes);
+// 计算OTP码
+fn compute_otp_code(decoded_secret: &[u8], input_data: &[u8]) -> Result<String> {
+    let mut mac = <HmacSha1 as KeyInit>::new_from_slice(decoded_secret)?;
+    mac.update(input_data);
     let result = mac.finalize().into_bytes();
 
     let offset = (result[19] & 0xf) as usize;
@@ -61,22 +56,25 @@ pub fn generate_totp(secret: &str) -> Result<String> {
     Ok(format!("{:06}", code % 1_000_000))
 }
 
+pub fn generate_totp(secret: &str) -> Result<String> {
+    // 检查时间同步
+    check_time_sync()?;
+    
+    let decoded = decode_secret(secret)?;
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_secs()
+        / 30;
+
+    let timestamp_bytes = timestamp.to_be_bytes();
+    compute_otp_code(&decoded, &timestamp_bytes)
+}
+
 pub fn generate_hotp(secret: &str, counter: u64) -> Result<String> {
-    let decoded = base32::decode(Alphabet::RFC4648 { padding: false }, secret)
-        .ok_or_else(|| anyhow!("无效的 base32 编码"))?;
-
+    let decoded = decode_secret(secret)?;
     let counter_bytes = counter.to_be_bytes();
-    let mut mac = <HmacSha1 as KeyInit>::new_from_slice(&decoded)?;
-    mac.update(&counter_bytes);
-    let result = mac.finalize().into_bytes();
-
-    let offset = (result[19] & 0xf) as usize;
-    let code = ((result[offset] & 0x7f) as u32) << 24
-        | (result[offset + 1] as u32) << 16
-        | (result[offset + 2] as u32) << 8
-        | (result[offset + 3] as u32);
-
-    Ok(format!("{:06}", code % 1_000_000))
+    compute_otp_code(&decoded, &counter_bytes)
 }
 
 pub fn generate_motp(secret: &str) -> Result<String> {
