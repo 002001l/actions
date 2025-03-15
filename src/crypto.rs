@@ -16,6 +16,9 @@ use crate::{
     utils,
 };
 
+// 当前数据格式版本
+const CURRENT_DATA_FORMAT_VERSION: u8 = 1;
+
 // 安全的内存擦除
 fn secure_erase(data: &mut [u8]) {
     for byte in data.iter_mut() {
@@ -40,7 +43,12 @@ pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData> {
     let nonce_bytes = rand::random::<[u8; 12]>();
     let nonce = Nonce::from_slice(&nonce_bytes);
     
-    let ciphertext = cipher.encrypt(nonce, data)
+    // 添加版本标记到数据
+    let mut versioned_data = Vec::with_capacity(data.len() + 1);
+    versioned_data.push(CURRENT_DATA_FORMAT_VERSION);
+    versioned_data.extend_from_slice(data);
+    
+    let ciphertext = cipher.encrypt(nonce, &versioned_data)
         .map_err(|_| anyhow!("加密失败"))?;
     
     // 安全擦除密钥
@@ -65,7 +73,13 @@ pub fn decrypt_data(encrypted: &EncryptedData, password: &str) -> Result<Vec<u8>
     // 安全擦除密钥
     secure_erase(&mut key);
     
-    Ok(plaintext)
+    // 检查版本并移除版本标记
+    if plaintext.is_empty() || plaintext[0] != CURRENT_DATA_FORMAT_VERSION {
+        return Err(anyhow!("不支持的数据格式版本，请升级到最新版本"));
+    }
+    
+    // 移除版本标记
+    Ok(plaintext[1..].to_vec())
 }
 
 pub fn load_secrets(password: &str) -> Result<HashMap<String, Secret>> {
@@ -90,6 +104,10 @@ pub fn save_secrets(secrets: &HashMap<String, Secret>, password: &str) -> Result
     let encrypted = encrypt_data(&data, password)?;
     
     let path = get_config_path()?;
+    
+    // 检查目录是否可写
+    utils::check_directory_writable(&path)?;
+    
     // 使用文件锁打开文件（写入模式）
     let mut file = utils::open_file_with_lock(&path, true)?;
     file.write_all(&serde_json::to_vec(&encrypted)?)?;

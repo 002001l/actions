@@ -12,8 +12,8 @@ use crate::{
     models::{Secret, AuthType},
     otp::generate_code,
     qrcode::scan_qrcode,
-    storage::{get_config_path, is_empty_password},
-    utils::{add_service_without_password, merge_temp_services, parse_otpauth_url},
+    storage::get_config_path,
+    utils::parse_otpauth_url,
 };
 
 #[derive(Parser)]
@@ -27,9 +27,9 @@ pub struct Cli {
     #[arg(short = 'a', long = "secret")]
     secret: Option<String>,
 
-    /// 设置加密密码
-    #[arg(short = 'p', long = "password")]
-    password: Option<String>,
+    /// 设置或修改加密密码
+    #[arg(short = 'p', long = "password", action = clap::ArgAction::SetTrue)]
+    password: bool,
 
     /// 验证码类型 (totp, hotp, motp)
     #[arg(short = 't', long = "type", default_value = "totp")]
@@ -77,25 +77,6 @@ fn validate_password(password: &str) -> Result<(), String> {
     Ok(())
 }
 
-// 获取有效密码（考虑空密码情况）
-fn get_effective_password(cli_password: Option<&String>) -> Result<String> {
-    // 检查是否是空密码
-    if is_empty_password()? {
-        println!("警告：当前使用空密码，这可能导致数据不安全。建议设置强密码。");
-        return Ok("".to_string());
-    }
-    
-    // 不是空密码，需要用户提供
-    if let Some(pass) = cli_password {
-        if let Err(e) = validate_password(pass) {
-            return Err(anyhow!("密码不符合要求: {}", e));
-        }
-        Ok(pass.clone())
-    } else {
-        prompt_password()
-    }
-}
-
 fn prompt_password() -> Result<String> {
     print!("请输入密码: ");
     io::stdout().flush()?;
@@ -108,7 +89,54 @@ fn prompt_password() -> Result<String> {
     Ok(password)
 }
 
-fn check_password_needed() -> bool {
+// 要求用户输入两次密码并确保一致
+fn prompt_new_password() -> Result<String> {
+    print!("请输入新密码: ");
+    io::stdout().flush()?;
+    let password1 = read_password()?;
+    
+    if let Err(e) = validate_password(&password1) {
+        return Err(anyhow!("密码不符合要求: {}", e));
+    }
+    
+    print!("请再次输入新密码: ");
+    io::stdout().flush()?;
+    let password2 = read_password()?;
+    
+    if password1 != password2 {
+        return Err(anyhow!("两次输入的密码不一致"));
+    }
+    
+    Ok(password1)
+}
+
+// 初始化加密数据库 - 新增函数
+fn init_encrypted_database() -> Result<String> {
+    println!("未找到加密数据库，需要创建一个新的数据库。");
+    
+    // 先检查配置目录是否可写
+    let config_path = get_config_path()?;
+    match crate::utils::check_directory_writable(&config_path) {
+        Ok(_) => {
+            // 目录可写，继续创建数据库
+            let password = prompt_new_password()?;
+            
+            let secrets = HashMap::new();
+            
+            // save_secrets 中还会再次检查，但这里的错误处理更友好
+            match save_secrets(&secrets, &password) {
+                Ok(_) => {
+                    println!("已成功创建加密数据库！");
+                    Ok(password)
+                },
+                Err(e) => Err(anyhow!("创建加密数据库失败: {}", e))
+            }
+        },
+        Err(e) => Err(anyhow!("无法创建加密数据库: {}。请确保您有权限写入配置目录。", e))
+    }
+}
+
+fn check_database_exists() -> bool {
     get_config_path().map(|p| p.exists()).unwrap_or(false)
 }
 
@@ -176,18 +204,49 @@ pub fn run() -> Result<()> {
     }
     
     // 检查是否存在本地数据
-    let has_local_data = check_password_needed();
-    let is_empty_pass = is_empty_password()?;
+    let has_database = check_database_exists();
+    
+    // 如果只是设置/修改密码但没有其他操作
+    if cli.password && cli.name.is_none() && cli.secret.is_none() && cli.qrcode.is_none() && cli.rename.is_none() && cli.delete.is_none() {
+        if has_database {
+            // 修改现有数据库的密码
+            print!("请输入原密码: ");
+            io::stdout().flush()?;
+            let old_password = read_password()?;
+            
+            // 尝试加载现有数据
+            match load_secrets(&old_password) {
+                Ok(secrets) => {
+                    // 设置新密码
+                    let new_password = prompt_new_password()?;
+                    
+                    // 使用新密码保存数据
+                    save_secrets(&secrets, &new_password)?;
+                    println!("密码已成功修改");
+                },
+                Err(_) => {
+                    println!("原密码错误，无法修改密码");
+                }
+            }
+        } else {
+            // 创建一个空的数据库并保存
+            let new_password = prompt_new_password()?;
+            
+            let secrets = HashMap::new();
+            save_secrets(&secrets, &new_password)?;
+            println!("已创建加密数据库");
+        }
+        return Ok(());
+    }
     
     // 处理删除服务
     if let Some(service_name) = &cli.delete {
-        if !has_local_data {
-            println!("未找到加密数据，请先使用 -p 参数设置密码");
-            return Ok(());
-        }
-        
-        // 获取密码（考虑空密码情况）
-        let password = get_effective_password(cli.password.as_ref())?;
+        // 如果数据库不存在，先创建
+        let password = if !has_database {
+            init_encrypted_database()?
+        } else {
+            prompt_password()?
+        };
         
         // 加载现有密钥
         let mut secrets = match load_secrets(&password) {
@@ -212,13 +271,12 @@ pub fn run() -> Result<()> {
     // 处理重命名服务
     if let Some(old_name) = &cli.rename {
         if let Some(new_name) = &cli.new_name {
-            if !has_local_data {
-                println!("未找到加密数据，请先使用 -p 参数设置密码");
-                return Ok(());
-            }
-            
-            // 获取密码（考虑空密码情况）
-            let password = get_effective_password(cli.password.as_ref())?;
+            // 如果数据库不存在，先创建
+            let password = if !has_database {
+                init_encrypted_database()?
+            } else {
+                prompt_password()?
+            };
             
             // 加载现有密钥
             let mut secrets = match load_secrets(&password) {
@@ -249,19 +307,21 @@ pub fn run() -> Result<()> {
     
     // 处理二维码扫描
     if let Some(image_path) = &cli.qrcode {
-        // 如果没有本地数据，必须先设置密码
-        if !has_local_data {
-            if cli.password.is_none() {
-                println!("未找到加密数据，请使用 -p 参数设置密码");
+        // 如果数据库不存在，先创建
+        let password = if !has_database {
+            init_encrypted_database()?
+        } else {
+            prompt_password()?
+        };
+        
+        // 加载现有密钥
+        let mut secrets = match load_secrets(&password) {
+            Ok(s) => s,
+            Err(_) => {
+                println!("密码错误或数据损坏");
                 return Ok(());
             }
-            
-            // 创建一个空的数据库并保存
-            let password = cli.password.as_ref().unwrap();
-            let secrets = HashMap::new();
-            save_secrets(&secrets, password)?;
-            println!("已创建加密数据库");
-        }
+        };
         
         // 扫描二维码
         match scan_qrcode(image_path) {
@@ -269,12 +329,11 @@ pub fn run() -> Result<()> {
                 // 解析 otpauth URL
                 match parse_otpauth_url(&url) {
                     Ok(secret_info) => {
-                        // 添加服务不需要密码
-                        if let Err(e) = add_service_without_password(secret_info.clone()) {
-                            println!("添加服务失败: {}", e);
-                        } else {
-                            println!("成功从二维码添加密钥：{}", secret_info.name);
-                        }
+                        // 添加密钥到数据库
+                        let mut updated_secret = secret_info.clone();
+                        secrets.insert(updated_secret.name.clone(), updated_secret);
+                        save_secrets(&secrets, &password)?;
+                        println!("成功从二维码添加密钥：{}", secret_info.name);
                     },
                     Err(e) => {
                         println!("解析二维码内容失败: {}", e);
@@ -291,30 +350,30 @@ pub fn run() -> Result<()> {
     
     // 处理添加新密钥的情况
     if let Some(secret_str) = &cli.secret {
-        // 如果没有本地数据，必须先设置密码
-        if !has_local_data {
-            if cli.password.is_none() {
-                println!("未找到加密数据，请使用 -p 参数设置密码");
+        // 如果数据库不存在，先创建
+        let password = if !has_database {
+            init_encrypted_database()?
+        } else {
+            prompt_password()?
+        };
+        
+        // 加载现有密钥
+        let mut secrets = match load_secrets(&password) {
+            Ok(s) => s,
+            Err(_) => {
+                println!("密码错误或数据损坏");
                 return Ok(());
             }
-            
-            // 创建一个空的数据库并保存
-            let password = cli.password.as_ref().unwrap();
-            let secrets = HashMap::new();
-            save_secrets(&secrets, password)?;
-            println!("已创建加密数据库");
-        }
+        };
         
         if secret_str.starts_with("otpauth://") {
             // 解析 otpauth URL
             match parse_otpauth_url(secret_str) {
                 Ok(secret_info) => {
-                    // 添加服务不需要密码
-                    if let Err(e) = add_service_without_password(secret_info.clone()) {
-                        println!("添加服务失败: {}", e);
-                    } else {
-                        println!("成功添加密钥：{}", secret_info.name);
-                    }
+                    // 添加密钥到数据库
+                    secrets.insert(secret_info.name.clone(), secret_info.clone());
+                    save_secrets(&secrets, &password)?;
+                    println!("成功添加密钥：{}", secret_info.name);
                 },
                 Err(e) => {
                     println!("解析 URL 失败: {}", e);
@@ -322,12 +381,11 @@ pub fn run() -> Result<()> {
             }
         } else if let Some(name) = &cli.name {
             // 添加普通密钥
-            let auth_type = match AuthType::from_str(&cli.auth_type) {
-                Ok(auth_type) => auth_type,
-                Err(e) => {
-                    println!("{}", e);
-                    return Ok(());
-                }
+            let auth_type = match cli.auth_type.to_lowercase().as_str() {
+                "totp" => AuthType::Totp,
+                "hotp" => AuthType::Hotp,
+                "motp" => AuthType::Motp,
+                _ => return Err(anyhow!("不支持的验证码类型: {}", cli.auth_type)),
             };
             let secret = Secret {
                 name: name.clone(),
@@ -336,12 +394,10 @@ pub fn run() -> Result<()> {
                 counter: if auth_type == AuthType::Hotp { Some(0) } else { None },
             };
             
-            // 添加服务不需要密码
-            if let Err(e) = add_service_without_password(secret.clone()) {
-                println!("添加服务失败: {}", e);
-            } else {
-                println!("成功添加密钥：{}", name);
-            }
+            // 添加密钥到数据库
+            secrets.insert(name.clone(), secret.clone());
+            save_secrets(&secrets, &password)?;
+            println!("成功添加密钥：{}", name);
         } else {
             return Err(anyhow!("添加普通密钥时必须使用 -n 参数指定服务名称"));
         }
@@ -349,52 +405,12 @@ pub fn run() -> Result<()> {
         return Ok(());
     }
     
-    // 如果只是设置/修改密码但没有其他操作
-    if cli.password.is_some() && cli.name.is_none() && cli.secret.is_none() && cli.qrcode.is_none() && cli.rename.is_none() && cli.delete.is_none() {
-        let new_password = cli.password.as_ref().unwrap();
-        
-        if has_local_data {
-            // 修改现有数据库的密码
-            if is_empty_pass {
-                // 如果当前是空密码，直接修改
-                let secrets = load_secrets("")?;
-                save_secrets(&secrets, new_password)?;
-                println!("密码已成功修改");
-            } else {
-                // 如果当前不是空密码，需要输入原密码
-                print!("请输入原密码: ");
-                io::stdout().flush()?;
-                let old_password = read_password()?;
-                
-                // 尝试加载现有数据
-                match load_secrets(&old_password) {
-                    Ok(secrets) => {
-                        // 使用新密码保存数据
-                        save_secrets(&secrets, new_password)?;
-                        println!("密码已成功修改");
-                    },
-                    Err(_) => {
-                        println!("原密码错误，无法修改密码");
-                    }
-                }
-            }
-        } else {
-            // 创建一个空的数据库并保存
-            let secrets = HashMap::new();
-            save_secrets(&secrets, new_password)?;
-            println!("已创建加密数据库");
-        }
-        return Ok(());
-    }
-    
-    // 查看验证码时需要密码
-    if !has_local_data {
-        println!("未找到加密数据，请使用 -p 参数设置密码");
-        return Ok(());
-    }
-    
-    // 获取密码用于查看验证码（考虑空密码情况）
-    let password = get_effective_password(cli.password.as_ref())?;
+    // 查看验证码 - 如果没有数据库，先创建
+    let password = if !has_database {
+        init_encrypted_database()?
+    } else {
+        prompt_password()?
+    };
     
     // 加载现有密钥
     let mut secrets = match load_secrets(&password) {
@@ -404,13 +420,6 @@ pub fn run() -> Result<()> {
             return Ok(());
         }
     };
-    
-    // 合并临时添加的服务
-    let merged = merge_temp_services(&mut secrets)?;
-    if merged {
-        // 如果有合并的服务，保存更新后的数据
-        save_secrets(&secrets, &password)?;
-    }
     
     // 获取指定服务的验证码
     if let Some(name) = cli.name {

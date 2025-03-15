@@ -3,22 +3,49 @@ use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
     path::Path,
-    sync::Mutex,
+    io::Write,
 };
 use url::Url;
-use std::sync::Arc;
 #[cfg(unix)]
 use libc;
 
 use crate::{
-    crypto::{load_secrets, save_secrets},
     models::{Secret, AuthType},
     storage::get_config_path,
 };
 
-// 全局临时服务存储
-lazy_static::lazy_static! {
-    static ref TEMP_SERVICES: Arc<Mutex<HashMap<String, Secret>>> = Arc::new(Mutex::new(HashMap::new()));
+// 检查目录是否可写
+pub fn check_directory_writable(path: &Path) -> Result<()> {
+    // 如果目录不存在，尝试创建它
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)?;
+        }
+        
+        // 创建一个临时文件来测试写入权限
+        let test_file_path = parent.join(".write_test_file");
+        let file_result = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&test_file_path);
+            
+        match file_result {
+            Ok(mut file) => {
+                // 尝试写入一些数据
+                let write_result = file.write_all(b"test");
+                
+                // 无论成功与否，尝试删除测试文件
+                let _ = fs::remove_file(&test_file_path);
+                
+                // 检查写入是否成功
+                write_result.map_err(|e| anyhow!("目录不可写: {}", e))?;
+                Ok(())
+            },
+            Err(e) => Err(anyhow!("目录不可写: {}", e)),
+        }
+    } else {
+        Err(anyhow!("无法获取父目录"))
+    }
 }
 
 pub fn parse_otpauth_url(url_str: &str) -> Result<Secret> {
@@ -32,10 +59,19 @@ pub fn parse_otpauth_url(url_str: &str) -> Result<Secret> {
         .ok_or_else(|| anyhow!("URL 缺少验证类型"))?
         .to_string();
         
-    let auth_type = AuthType::from_str(&auth_type_str)
-        .map_err(|e| anyhow!(e))?;
+    // 严格检查验证类型，不允许任何不标准的类型名称
+    let auth_type = match auth_type_str.to_lowercase().as_str() {
+        "totp" => AuthType::Totp,
+        "hotp" => AuthType::Hotp,
+        "motp" => AuthType::Motp,
+        _ => return Err(anyhow!("不支持的验证类型: {}", auth_type_str)),
+    };
     
     let path = url.path().trim_start_matches('/');
+    if path.is_empty() {
+        return Err(anyhow!("URL 缺少服务名称"));
+    }
+    
     let name = path.to_string();
     
     let params: HashMap<_, _> = url.query_pairs().into_owned().collect();
@@ -43,11 +79,18 @@ pub fn parse_otpauth_url(url_str: &str) -> Result<Secret> {
         .ok_or_else(|| anyhow!("URL 缺少 secret 参数"))?
         .to_string();
     
+    // 严格检查必要参数
+    if secret.is_empty() {
+        return Err(anyhow!("密钥不能为空"));
+    }
+    
     let counter = if auth_type == AuthType::Hotp {
+        // HOTP必须有counter参数
         Some(params.get("counter")
-            .map(|c| c.parse::<u64>())
-            .transpose()?
-            .unwrap_or(0))
+            .ok_or_else(|| anyhow!("HOTP URL 缺少 counter 参数"))?
+            .parse::<u64>()
+            .map_err(|_| anyhow!("counter 参数必须是有效的数字"))?
+        )
     } else {
         None
     };
@@ -58,46 +101,6 @@ pub fn parse_otpauth_url(url_str: &str) -> Result<Secret> {
         auth_type,
         counter,
     })
-}
-
-// 添加服务时使用的特殊函数，不需要密码
-pub fn add_service_without_password(secret: Secret) -> Result<()> {
-    // 检查是否有本地数据
-    let config_path = get_config_path()?;
-    if !config_path.exists() {
-        return Err(anyhow!("未找到加密数据，请先使用 -p 参数设置密码"));
-    }
-    
-    // 尝试使用空密码
-    if let Ok(mut secrets) = load_secrets("") {
-        secrets.insert(secret.name.clone(), secret.clone());
-        save_secrets(&secrets, "")?;
-        return Ok(());
-    }
-    
-    // 如果空密码不行，将服务添加到内存中的临时存储
-    let mut temp_services = TEMP_SERVICES.lock().map_err(|_| anyhow!("无法获取临时服务锁"))?;
-    temp_services.insert(secret.name.clone(), secret.clone());
-    
-    println!("服务 \"{}\" 已添加到临时存储。下次查看验证码时将自动合并。", secret.name);
-    
-    Ok(())
-}
-
-// 合并临时添加的服务
-pub fn merge_temp_services(secrets: &mut HashMap<String, Secret>) -> Result<bool> {
-    let mut temp_services = TEMP_SERVICES.lock().map_err(|_| anyhow!("无法获取临时服务锁"))?;
-    if temp_services.is_empty() {
-        return Ok(false);
-    }
-    
-    // 合并所有临时服务
-    for (name, secret) in temp_services.drain() {
-        secrets.insert(name.clone(), secret.clone());
-        println!("已合并临时添加的服务: {}", name);
-    }
-    
-    Ok(true)
 }
 
 // 设置文件权限

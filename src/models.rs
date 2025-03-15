@@ -8,17 +8,6 @@ pub enum AuthType {
     Motp,
 }
 
-impl AuthType {
-    pub fn from_str(s: &str) -> Result<Self, String> {
-        match s.to_lowercase().as_str() {
-            "totp" => Ok(AuthType::Totp),
-            "hotp" => Ok(AuthType::Hotp),
-            "motp" => Ok(AuthType::Motp),
-            _ => Err(format!("不支持的验证码类型: {}", s)),
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Secret {
     pub name: String,
