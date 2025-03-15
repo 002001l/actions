@@ -3,8 +3,6 @@ use clap::{Parser, command};
 use std::{
     collections::HashMap,
     io::{self, Write},
-    process::Command,
-    path::Path,
 };
 use rpassword::read_password;
 use chrono::Local;
@@ -118,6 +116,13 @@ fn check_password_needed() -> bool {
 fn show_version_info() -> Result<()> {
     let package_name = env!("CARGO_PKG_NAME");
     
+    let current_year = chrono::Utc::now().year();
+    let copyright_years = if current_year > 2024 {
+        format!("2024-{}", current_year)
+    } else {
+        "2024".to_string()
+    };
+    
     println!("
      ╭────────────────────────╮
      │   ╭───╮ ╭───╮ ╭───╮   │
@@ -127,15 +132,14 @@ fn show_version_info() -> Result<()> {
      │   ╰───╯ ╰───╯ ╰───╯   │
      ╰────────────────────────╯
       One-Time Password Guard
-   安全、快速的验证码管理工具
+   Secure & Fast OTP Management
     -----------------------------
-       © 2024 {} Team", package_name);
+       © {} {} Team", copyright_years, package_name);
 
     // 获取版本信息
     let version = env!("CARGO_PKG_VERSION");
     let authors = env!("CARGO_PKG_AUTHORS");
     
-    // 尝试获取二进制文件的大小
     let binary_path = std::env::current_exe()?;
     let binary_size = if let Ok(metadata) = std::fs::metadata(&binary_path) {
         let size_kb = metadata.len() as f64 / 1024.0;
@@ -145,19 +149,17 @@ fn show_version_info() -> Result<()> {
             format!("{:.2} KB", size_kb)
         }
     } else {
-        "未知".to_string()
+        "Unknown".to_string()
     };
     
-    // 获取构建日期
-    let build_date = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let build_date = chrono::Utc::now().format("%a %b %e %H:%M:%S %Y").to_string();
     
-    // 显示版本信息的框架
     println!("╭─────────────────────────────────────╮");
-    println!("│ 程序名称: {:<24} │", package_name);
-    println!("│ 版本号:   v{:<24} │", version);
-    println!("│ 文件大小: {:<24} │", binary_size);
-    println!("│ 构建日期: {:<24} │", build_date);
-    println!("│ 作者:     {:<24} │", authors.split(':').next().unwrap_or(format!("{} Team", package_name).as_str()));
+    println!("│ Name:         {:<24} │", package_name);
+    println!("│ Version:      {:<24} │", format!("v{}", version));
+    println!("│ Size:         {:<24} │", binary_size);
+    println!("│ Build Date:   {:<24} │", build_date);
+    println!("│ Author:       {:<24} │", authors.split(':').next().unwrap_or(format!("{} Team", package_name).as_str()));
     println!("╰─────────────────────────────────────╯");
     println!("");
     
