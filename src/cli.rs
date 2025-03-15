@@ -3,8 +3,11 @@ use clap::{Parser, command};
 use std::{
     collections::HashMap,
     io::{self, Write},
+    process::Command,
+    path::Path,
 };
 use rpassword::read_password;
+use chrono::Local;
 
 use crate::{
     crypto::{load_secrets, save_secrets},
@@ -49,6 +52,10 @@ pub struct Cli {
     /// 删除指定服务
     #[arg(short = 'd', long = "delete")]
     delete: Option<String>,
+    
+    /// 显示版本信息和ASCII艺术logo
+    #[arg(short = 'v', long = "version")]
+    version: bool,
 }
 
 // 密码强度验证
@@ -107,8 +114,63 @@ fn check_password_needed() -> bool {
     get_config_path().map(|p| p.exists()).unwrap_or(false)
 }
 
+// 显示版本信息和ASCII艺术logo
+fn show_version_info() -> Result<()> {
+    let package_name = env!("CARGO_PKG_NAME");
+    
+    println!("
+     ╭────────────────────────╮
+     │   ╭───╮ ╭───╮ ╭───╮   │
+     │   │ ╭─┤ │╭─╮│ │╭─╮│   │
+     │   │ │ │ ││ ││ ││ ││   │
+     │   │ ╰─┤ │╰─╯│ │╰─╯│   │
+     │   ╰───╯ ╰───╯ ╰───╯   │
+     ╰────────────────────────╯
+      One-Time Password Guard
+   安全、快速的验证码管理工具
+    -----------------------------
+       © 2024 {} Team", package_name);
+
+    // 获取版本信息
+    let version = env!("CARGO_PKG_VERSION");
+    let authors = env!("CARGO_PKG_AUTHORS");
+    
+    // 尝试获取二进制文件的大小
+    let binary_path = std::env::current_exe()?;
+    let binary_size = if let Ok(metadata) = std::fs::metadata(&binary_path) {
+        let size_kb = metadata.len() as f64 / 1024.0;
+        if size_kb > 1024.0 {
+            format!("{:.2} MB", size_kb / 1024.0)
+        } else {
+            format!("{:.2} KB", size_kb)
+        }
+    } else {
+        "未知".to_string()
+    };
+    
+    // 获取构建日期
+    let build_date = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    
+    // 显示版本信息的框架
+    println!("╭─────────────────────────────────────╮");
+    println!("│ 程序名称: {:<24} │", package_name);
+    println!("│ 版本号:   v{:<24} │", version);
+    println!("│ 文件大小: {:<24} │", binary_size);
+    println!("│ 构建日期: {:<24} │", build_date);
+    println!("│ 作者:     {:<24} │", authors.split(':').next().unwrap_or(format!("{} Team", package_name).as_str()));
+    println!("╰─────────────────────────────────────╯");
+    println!("");
+    
+    Ok(())
+}
+
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
+    
+    // 检查是否显示版本信息
+    if cli.version {
+        return show_version_info();
+    }
     
     // 检查是否存在本地数据
     let has_local_data = check_password_needed();
